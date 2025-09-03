@@ -2,8 +2,10 @@ import sqlite3
 import json
 import time
 import logging
+import threading
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+from contextlib import contextmanager
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -26,25 +28,51 @@ logger = logging.getLogger(__name__)
 # ======================================================
 # Database Helpers
 # ======================================================
+
+# Thread-local lock for database operations
+_db_lock = threading.RLock()
+
+@contextmanager
+def db_transaction():
+    """Context manager for safe database transactions"""
+    with _db_lock:
+        conn = None
+        try:
+            conn = get_conn()
+            conn.execute("BEGIN IMMEDIATE;")
+            yield conn
+            conn.commit()
+        except Exception as e:
+            if conn:
+                try:
+                    conn.rollback()
+                except:
+                    pass
+            raise
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except:
+                    pass
 def get_conn():
     """Get database connection with proper settings"""
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
-    conn.execute("PRAGMA busy_timeout=5000;")
+    conn.execute("PRAGMA busy_timeout=10000;")  # Increased timeout
+    conn.execute("PRAGMA wal_autocheckpoint=1000;")
     return conn
 
 def exec_with_retry(queries, retries=5, backoff=0.2):
     """Execute multiple queries with retry logic for database locks"""
     for attempt in range(retries):
         try:
-            conn = get_conn()
-            cur = conn.cursor()
-            for sql, params in queries:
-                cur.execute(sql, params)
-            conn.commit()
-            conn.close()
+            with db_transaction() as conn:
+                cur = conn.cursor()
+                for sql, params in queries:
+                    cur.execute(sql, params)
             return
         except sqlite3.OperationalError as e:
             if "locked" in str(e).lower() and attempt < retries - 1:
@@ -59,14 +87,21 @@ def exec_with_retry(queries, retries=5, backoff=0.2):
 
 def query_db(sql, params=()):
     """Query database with error handling"""
+    conn = None
     try:
         conn = get_conn()
         cur = conn.cursor()
         cur.execute(sql, params)
         rows = cur.fetchall()
         conn.close()
+        conn = None
         return rows
     except Exception as e:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
         logger.error(f"Query error: {e}")
         raise
 
