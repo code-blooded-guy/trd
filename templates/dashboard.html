@@ -54,6 +54,8 @@
   <div class="row" style="justify-content:space-between;align-items:center">
     <h1>TradingView Paper Trading Logger — <span class="muted">IST Dashboard</span></h1>
     <div class="row">
+      <button class="btn" onclick="addFunds()">💰 Add Funds</button>
+      <button class="btn" onclick="clearTrades()" style="background:#dc2626;border-color:#dc2626">🗑️ Clear Trades</button>
       <button class="btn" onclick="location.reload()">🔄 Refresh</button>
     </div>
   </div>
@@ -230,6 +232,65 @@
 <script>
 // Auto-refresh every 30 seconds
 setTimeout(() => location.reload(), 30000);
+
+// Clear all trades function
+async function clearTrades() {
+  if (!confirm('⚠️ Clear ALL trades and events? This cannot be undone!\n\nWallet balance will be preserved but all trade history will be lost.')) {
+    return;
+  }
+  
+  try {
+    const response = await fetch('/clear-trades', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'}
+    });
+    
+    const result = await response.json();
+    
+    if (result.status === 'ok') {
+      alert(`✅ ${result.message}\nWallet Balance: ₹${result.wallet_balance.toLocaleString()}`);
+      location.reload();
+    } else {
+      alert(`❌ Error: ${result.message}`);
+    }
+  } catch (error) {
+    alert(`❌ Network error: ${error.message}`);
+  }
+}
+
+// Add funds function
+async function addFunds() {
+  const amount = prompt('💰 Enter amount to add to wallet (₹):');
+  
+  if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
+    if (amount !== null) alert('❌ Please enter a valid positive amount');
+    return;
+  }
+  
+  const reason = prompt('📝 Enter reason for deposit (optional):', 'MANUAL_DEPOSIT') || 'MANUAL_DEPOSIT';
+  
+  try {
+    const response = await fetch('/add-funds', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        amount: parseFloat(amount),
+        reason: reason
+      })
+    });
+    
+    const result = await response.json();
+    
+    if (result.status === 'ok') {
+      alert(`✅ ${result.message}\n\nBefore: ₹${result.balance_before.toLocaleString()}\nAfter: ₹${result.balance_after.toLocaleString()}`);
+      location.reload();
+    } else {
+      alert(`❌ Error: ${result.message}`);
+    }
+  } catch (error) {
+    alert(`❌ Network error: ${error.message}`);
+  }
+}
 </script>
 
 </body>

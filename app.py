@@ -249,6 +249,62 @@ async def tv_webhook(request: Request):
 
     return {"status": "ok", "event": event, "symbol": symbol, "tag": tag}
 
+@app.post("/clear-trades")
+async def clear_trades(request: Request):
+    """Clear all trades but keep wallet history"""
+    try:
+        # Get current wallet balance before clearing
+        current_balance = get_wallet_balance()
+        
+        # Clear trades table
+        queries = [("DELETE FROM trades;", ())]
+        exec_with_retry(queries)
+        
+        # Log the clear action
+        log_wallet_change(current_balance, current_balance, "TRADES_CLEARED", None)
+        
+        logger.info(f"[API] All trades cleared, wallet balance preserved: ₹{current_balance:,.2f}")
+        return {"status": "ok", "message": "All trades cleared", "wallet_balance": current_balance}
+        
+    except Exception as e:
+        logger.error(f"[API] Clear trades error: {e}")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+@app.post("/add-funds")
+async def add_funds(request: Request):
+    """Add funds to wallet"""
+    try:
+        body = await request.body()
+        data = json.loads(body.decode("utf-8"))
+        
+        amount = safe_float(data.get("amount"))
+        reason = data.get("reason", "MANUAL_DEPOSIT")
+        
+        if not amount or amount <= 0:
+            return JSONResponse({"status": "error", "message": "Invalid amount"}, status_code=400)
+            
+        # Get current balance and add funds
+        balance_before = get_wallet_balance()
+        balance_after = balance_before + amount
+        
+        # Log the fund addition
+        log_wallet_change(balance_before, balance_after, reason, None)
+        
+        logger.info(f"[API] Funds added: ₹{amount:,.2f} - Balance: ₹{balance_before:,.2f} → ₹{balance_after:,.2f}")
+        return {
+            "status": "ok", 
+            "message": f"₹{amount:,.2f} added successfully",
+            "balance_before": balance_before,
+            "balance_after": balance_after,
+            "amount_added": amount
+        }
+        
+    except json.JSONDecodeError:
+        return JSONResponse({"status": "error", "message": "Invalid JSON"}, status_code=400)
+    except Exception as e:
+        logger.error(f"[API] Add funds error: {e}")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request):
     """Render trading dashboard"""
