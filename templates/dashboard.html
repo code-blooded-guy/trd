@@ -69,8 +69,8 @@
     </div>
     <div class="card">
       <div class="muted small">📊 Position Size</div>
-      <div class="v mono">50% of balance</div>
-      <div class="muted small">₹ {{ "{:,.2f}".format(wallet.balance * 0.5) }} per trade</div>
+      <div class="v mono">30% of balance</div>
+      <div class="muted small">₹ {{ "{:,.2f}".format(wallet.balance * 0.3) }} per trade</div>
     </div>
     <div class="card">
       <div class="muted small">📈 Total Trades</div>
@@ -196,10 +196,10 @@
         <strong>Webhook Endpoint:</strong> 
         <code>POST /tv-webhook</code>
       </div>
-      <div>
-        <strong>Strategy:</strong> 
-        <span class="muted">50% balance per ENTRY, close on TARGET1/TARGET2/STOPLOSS</span>
-      </div>
+              <div>
+          <strong>Strategy:</strong> 
+          <span class="muted">30% balance per ENTRY, close on TARGET1/TARGET2/STOPLOSS</span>
+        </div>
       <div>
         <strong>Database:</strong> 
         <span class="muted">SQLite with WAL mode</span>

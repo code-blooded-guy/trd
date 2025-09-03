@@ -158,10 +158,10 @@ async def tv_webhook(request: Request):
         logger.error(f"[Webhook] Validation error: {e}")
         return JSONResponse({"status": "error", "message": str(e)}, status_code=400)
 
-    # Extract optional fields
+    # Extract optional fields (map Pine Script field names)
     tf = data.get("tf")
-    sigH = safe_float(data.get("sigHigh"))
-    sigL = safe_float(data.get("sigLow"))
+    sigH = safe_float(data.get("sigHigh"))  # Pine Script sends "sigHigh"
+    sigL = safe_float(data.get("sigLow"))   # Pine Script sends "sigLow"
     sl = safe_float(data.get("sl"))
     t1 = safe_float(data.get("t1"))
     t2 = safe_float(data.get("t2"))
@@ -173,7 +173,7 @@ async def tv_webhook(request: Request):
         if event == "ENTRY":
             # Handle new trade entry
             balance_before = get_wallet_balance()
-            position_size = balance_before * 0.5  # Use 50% of balance
+            position_size = balance_before * 0.3  # Use 30% of balance (conservative)
             balance_after = balance_before - position_size
             
             # Insert trade record
@@ -191,7 +191,7 @@ async def tv_webhook(request: Request):
             # Log wallet change
             log_wallet_change(balance_before, balance_after, f"ENTRY_{side}_{symbol}", trade_id)
             
-            logger.info(f"[Webhook] ENTRY {side} {symbol} at {price} - Position: ₹{position_size:,.2f}, Tag: {tag}")
+            logger.info(f"[Webhook] ENTRY {side} {symbol} at {price} - Position: ₹{position_size:,.2f} (30%), Tag: {tag}")
 
         elif event in ["TARGET1", "TARGET2", "STOPLOSS"]:
             # Handle trade exit
@@ -237,8 +237,9 @@ async def tv_webhook(request: Request):
 
     except sqlite3.IntegrityError as e:
         if "UNIQUE constraint failed" in str(e):
-            logger.error(f"[Webhook] Duplicate tag: {tag}")
-            return JSONResponse({"status": "error", "message": f"Duplicate tag: {tag}"}, status_code=409)
+            # Gracefully ignore duplicates as per Pine Script requirement
+            logger.info(f"[Webhook] Duplicate ignored: {tag}/{event}")
+            return {"status": "ok", "message": "duplicate_ignored", "event": event, "tag": tag}
         else:
             logger.error(f"[Webhook] Database integrity error: {e}")
             return JSONResponse({"status": "error", "message": "Database error"}, status_code=500)
