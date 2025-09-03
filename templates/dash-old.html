@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>TradingView Paper Logger – Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg:#0f172a; --panel:#111827; --text:#e5e7eb; --muted:#9ca3af;
+      --border:#1f2937; --ok:#10b981; --warn:#f59e0b; --err:#ef4444; --accent:#22d3ee;
+    }
+    * { box-sizing: border-box; }
+    body { background:var(--bg); color:var(--text); font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:0; }
+    header { padding:16px 24px; font-size:20px; font-weight:700; border-bottom:1px solid var(--border); }
+    main { padding: 20px 24px 80px; max-width: 1400px; margin: 0 auto; }
+
+    /* responsive two-column grid */
+    
+    .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; }
+    h2 { font-size:18px; margin:0 0 12px 0; }
+    .actions { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; align-items:center; }
+    button, .btn { background:#1f2937; color:var(--text); border:1px solid #374151; padding:8px 12px; border-radius:8px; cursor:pointer; text-decoration:none; }
+    button:hover, .btn:hover { border-color:#4b5563; }
+    .muted { color:var(--muted); }
+
+    table { width:100%; border-collapse: collapse; }
+    th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); font-size:13px; vertical-align: top; }
+    th { color:var(--muted); font-weight:600; }
+    code { background:#0b1220; border:1px solid var(--border); padding:2px 6px; border-radius:6px; word-break:break-all; }
+
+    .pill { padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid var(--border); }
+    .open { background:#1f2937; }
+    .t1   { background:#052e16; border-color:#14532d; color:#bbf7d0; }
+    .t2   { background:#0f172a; border-color:var(--accent); color:#67e8f9; }
+    .sl   { background:#2f0d0d; border-color:#b91c1c; color:#fecaca; }
+  </style>
+</head>
+<body>
+<header>TradingView Paper Logger – <span class="muted">{{ tz_label }}</span></header>
+<main>
+
+  <div class="grid">
+    <!-- Trades -->
+    <div class="card">
+      <div class="actions">
+        <a class="btn" href="/dashboard">Refresh</a>
+        <button onclick="clearDB()">Clear DB</button>
+        <span class="muted">Tip: <code>ENTRY</code> is sent by Pine; then <code>TARGET1</code>, <code>TARGET2</code>, or <code>STOPLOSS</code> update status.</span>
+      </div>
+      <h2>Trades (latest 100 Entries)</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Entry Time<br>(IST&nbsp;(Asia/Kolkata))</th>
+            <th>Symbol / TF</th>
+            <th>Candle</th>
+            <th>Entry @</th>
+            <th>Signal H / L</th>
+            <th>T1 @ / Time</th>
+            <th>T2 @ / Time</th>
+            <th>SL @ / Time</th>
+            <th>Status</th>
+            <th>Tag</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% if trades and trades|length > 0 %}
+          {% for t in trades %}
+          <tr>
+            <td>{{ t.entry_time }}</td>
+            <td>{{ t.symbol }} / {{ t.tf }}</td>
+            <td>{{ t.candle }}</td>
+            <td>{{ "%.2f"|format(t.entry_price or 0) }}</td>
+            <td>H={{ t.sigH if t.sigH is not none else "—" }}, L={{ t.sigL if t.sigL is not none else "—" }}</td>
+            <td>{{ t.t1 }}</td>
+            <td>{{ t.t2 }}</td>
+            <td>{{ t.sl }}</td>
+            <td>
+              {% if t.status.startswith("CLOSED T2") %}
+                <span class="pill t2">{{ t.status }}</span>
+              {% elif t.status.startswith("CLOSED SL") %}
+                <span class="pill sl">{{ t.status }}</span>
+              {% elif t.status.startswith("T1 HIT") %}
+                <span class="pill t1">{{ t.status }}</span>
+              {% else %}
+                <span class="pill open">{{ t.status }}</span>
+              {% endif %}
+            </td>
+            <td>{{ t.tag }}</td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="10" class="muted">No entries yet.</td></tr>
+        {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Raw events -->
+    <div class="card">
+      <h2>Raw Event Stream (last 500)</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Time (IST(Asia/Kolkata))</th>
+            <th>Event</th>
+            <th>Symbol / TF</th>
+            <th>Side</th>
+            <th>Price</th>
+            <th>Tag</th>
+            <th>Raw</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% if events and events|length > 0 %}
+          {% for e in events %}
+          <tr>
+            <td>{{ e.ts_ist }}</td>
+            <td>{{ e.event }}</td>
+            <td>{{ e.symbol }} / {{ e.tf }}</td>
+            <td>{{ e.side }}</td>
+            <td>{{ "%.2f"|format(e.price or 0) if e.price is not none else "—" }}</td>
+            <td>{{ e.tag }}</td>
+            <td><code>{{ e.raw }}</code></td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="7" class="muted">No events yet.</td></tr>
+        {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<script>
+  async function clearDB() {
+    const secret = prompt("Enter TV_TEST_SECRET to clear DB:");
+    if (!secret) return;
+    try {
+      const res = await fetch(`/clear?secret=${encodeURIComponent(secret)}`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(()=>({detail:"error"}));
+        alert("Failed: " + (data.detail || res.statusText));
+        return;
+      }
+      location.reload();
+    } catch (e) {
+      alert("Network error: " + e);
+    }
+  }
+</script>
+
+</body>
+</html>

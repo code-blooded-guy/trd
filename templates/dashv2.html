@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>TradingView Paper Logger — IST (Asia/Kolkata)</title>
+  <style>
+    :root{
+      --bg:#0f1623; --card:#151e2e; --muted:#8aa0b6; --fg:#e5f0ff;
+      --green:#22c55e; --red:#ef4444; --amber:#f59e0b; --blue:#60a5fa; --pill:#23314b;
+      --border:#25324a; --mono: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.5 system-ui,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial}
+    a{color:var(--blue);text-decoration:none}
+    .wrap{max-width:1280px;margin:24px auto;padding:0 16px}
+    .grid{display:grid;gap:16px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
+    h1{margin:0 0 8px;font-size:22px;font-weight:700}
+    h2{margin:0 0 8px;font-size:18px}
+    .muted{color:var(--muted)}
+    .mono{font-family:var(--mono)}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .btn{padding:8px 12px;border-radius:10px;background:#1e293b;color:#e2e8f0;border:1px solid var(--border);cursor:pointer}
+    .btn:hover{filter:brightness(1.1)}
+    .pill{padding:2px 8px;border-radius:999px;background:var(--pill);font-size:12px}
+    .pill.open{background:#1c2d1e;color:#b7ffb4}
+    .pill.part{background:#2f2a18;color:#ffe4a6}
+    .pill.cl2{background:#16243a;color:#acd8ff}
+    .pill.sl{background:#3a1a1a;color:#ffb3b3}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+    th{color:#c9d7ee;text-align:left;white-space:nowrap;position:sticky;top:0;background:var(--card);z-index:1}
+    td.right{text-align:right}
+    .kpi{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+    .kpi .card{padding:14px}
+    .kpi .v{font-size:20px;font-weight:800}
+    .filters .row{gap:10px}
+    input,select{background:#0f172a;border:1px solid var(--border);color:var(--fg);border-radius:8px;padding:8px 10px}
+    code{font-family:var(--mono);background:#0b1320;border:1px solid var(--border);padding:2px 6px;border-radius:8px}
+    .scroll{max-height:420px;overflow:auto;border-radius:10px}
+    .small{font-size:13px}
+  </style>
+</head>
+<body>
+<div class="wrap grid">
+
+  <!-- Header -->
+  <div class="row" style="justify-content:space-between;align-items:center">
+    <h1>TradingView Paper Logger — <span class="muted">IST (Asia/Kolkata)</span></h1>
+    <div class="row">
+      <form method="post" action="/clear-db" onsubmit="return confirm('Clear all trades & events? Wallet stays.');">
+        <button class="btn" type="submit">Clear Trades</button>
+      </form>
+      <button class="btn" onclick="location.reload()">Refresh</button>
+    </div>
+  </div>
+
+  <!-- Wallet summary -->
+  <div class="kpi">
+    <div class="card">
+      <div class="muted small">Wallet Balance</div>
+      <div class="v mono">₹ {{ "%.2f"|format(wallet.balance) }}</div>
+      <div class="muted small">Secret for TV: <code>{{ secret_hint }}</code></div>
+    </div>
+    <div class="card">
+      <div class="muted small">Allocation / trade</div>
+      <div class="v mono">50% of balance</div>
+      <div class="muted small">ENTRY spends 50%, T1 returns 50%, T2/SL returns rest</div>
+    </div>
+    <div class="card">
+      <div class="muted small">Open Trades</div>
+      <div class="v mono">
+        {{
+          trades | selectattr("status","in",["OPEN","PARTIAL"]) | list | length
+        }}
+      </div>
+      <div class="muted small">Open = not fully exited yet</div>
+    </div>
+    <div class="card">
+      <div class="muted small">Realized P&L (sum)</div>
+      <div class="v mono">
+        {% set s = 0 %}
+        {% for t in trades %}{% set s = s + (t.realized_pnl or 0) %}{% endfor %}
+        {{ "%.2f"|format(s) }}
+      </div>
+      <div class="muted small">Across all trades</div>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="card filters">
+    <form class="row" method="get" action="/dashboard">
+      <input type="text" name="symbol" placeholder="Symbol" value="{{ filters.symbol }}">
+      <select name="side">
+        <option value="">Side (any)</option>
+        <option value="BUY" {{ 'selected' if filters.side=='BUY' else '' }}>BUY</option>
+        <option value="SELL" {{ 'selected' if filters.side=='SELL' else '' }}>SELL</option>
+      </select>
+      <select name="status">
+        <option value="">Status (any)</option>
+        {% for s in ["OPEN","PARTIAL","CLOSED_T2","CLOSED_SL","EXPIRED"] %}
+        <option value="{{ s }}" {{ 'selected' if filters.status==s else '' }}>{{ s }}</option>
+        {% endfor %}
+      </select>
+      <input type="text" name="q" placeholder="Search tag/symbol/tf…" style="min-width:240px" value="{{ filters.q }}">
+      <select name="sort">
+        {% set s=filters.sort %}
+        <option value="-ts_entry_utc" {{ 'selected' if s=='-ts_entry_utc' else '' }}>Newest first</option>
+        <option value="ts_entry_utc" {{ 'selected' if s=='ts_entry_utc' else '' }}>Oldest first</option>
+        <option value="symbol" {{ 'selected' if s=='symbol' else '' }}>Symbol A→Z</option>
+        <option value="-symbol" {{ 'selected' if s=='-symbol' else '' }}>Symbol Z→A</option>
+        <option value="-entry" {{ 'selected' if s=='-entry' else '' }}>Entry High→Low</option>
+        <option value="entry" {{ 'selected' if s=='entry' else '' }}>Entry Low→High</option>
+        <option value="status" {{ 'selected' if s=='status' else '' }}>Status A→Z</option>
+        <option value="-status" {{ 'selected' if s=='-status' else '' }}>Status Z→A</option>
+      </select>
+      <button class="btn" type="submit">Apply</button>
+    </form>
+  </div>
+
+  <!-- Trades -->
+  <div class="card">
+    <h2>Trades (latest 200)</h2>
+    <div class="scroll">
+      <table>
+        <thead>
+        <tr>
+          <th>Entry Time<br><span class="muted small">IST</span></th>
+          <th>Symbol / TF</th>
+          <th>Side</th>
+          <th>Candle</th>
+          <th class="right">Entry @</th>
+          <th class="right">Signal H/L</th>
+          <th class="right">Qty</th>
+          <th class="right">Spent</th>
+          <th class="right">T1 @ / Time</th>
+          <th class="right">T2 @ / Time</th>
+          <th class="right">SL @ / Time</th>
+          <th>Status</th>
+          <th class="right">Realized P&L</th>
+          <th>Tag</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% if trades|length == 0 %}
+          <tr><td colspan="14" class="muted">No entries yet.</td></tr>
+        {% else %}
+          {% for t in trades %}
+          <tr>
+            <td class="mono">{{ t.ts_entry_ist }}</td>
+            <td>{{ t.symbol }} <span class="muted">/ {{ t.tf }}</span></td>
+            <td>
+              {% if t.side == 'BUY' %}<span class="pill open">BUY</span>
+              {% elif t.side == 'SELL' %}<span class="pill sl">SELL</span>
+              {% else %}<span class="pill">{{ t.side or "—" }}</span>{% endif %}
+            </td>
+            <td>{{ t.candle or "—" }}</td>
+            <td class="right mono">{{ "%.2f"|format(t.entry) if t.entry else "—" }}</td>
+            <td class="right mono">
+              {% if t.sig_high or t.sig_low %}
+                H {{ "%.2f"|format(t.sig_high) if t.sig_high else "—" }}
+                <span class="muted">/</span>
+                L {{ "%.2f"|format(t.sig_low) if t.sig_low else "—" }}
+              {% else %}—{% endif %}
+            </td>
+            <td class="right mono">{{ "%.6f"|format(t.qty or 0) }}</td>
+            <td class="right mono">{{ "%.2f"|format(t.spent or 0) }}</td>
+
+            <td class="right mono">
+              {% if t.t1_price %}
+                {{ "%.2f"|format(t.t1_price) }} <span class="muted">/ {{ t.t1_time_ist }}</span>
+              {% else %}—{% endif %}
+            </td>
+            <td class="right mono">
+              {% if t.t2_price %}
+                {{ "%.2f"|format(t.t2_price) }} <span class="muted">/ {{ t.t2_time_ist }}</span>
+              {% else %}—{% endif %}
+            </td>
+            <td class="right mono">
+              {% if t.sl_price %}
+                {{ "%.2f"|format(t.sl_price) }} <span class="muted">/ {{ t.sl_time_ist }}</span>
+              {% else %}—{% endif %}
+            </td>
+
+            <td>
+              {% if t.status == 'OPEN' %}<span class="pill open">OPEN</span>
+              {% elif t.status == 'PARTIAL' %}<span class="pill part">PARTIAL</span>
+              {% elif t.status == 'CLOSED_T2' %}<span class="pill cl2">CLOSED_T2</span>
+              {% elif t.status == 'CLOSED_SL' %}<span class="pill sl">CLOSED_SL</span>
+              {% else %}<span class="pill">{{ t.status or "—" }}</span>{% endif %}
+            </td>
+
+            <td class="right mono" style="color: {{ '#22c55e' if (t.realized_pnl or 0) >= 0 else '#ef4444' }}">
+              {{ "%.2f"|format(t.realized_pnl or 0) }}
+            </td>
+            <td class="mono">{{ t.tag }}</td>
+          </tr>
+          {% endfor %}
+        {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Ledger -->
+  <div class="card">
+    <h2>Wallet Ledger (latest 200)</h2>
+    <div class="scroll">
+      <table>
+        <thead>
+        <tr>
+          <th>Time (IST)</th>
+          <th>Type</th>
+          <th>Tag</th>
+          <th>Side</th>
+          <th class="right">Qty</th>
+          <th class="right">Price</th>
+          <th class="right">Amount</th>
+          <th class="right">Balance After</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for l in ledger %}
+          <tr>
+            <td class="mono">{{ l.ts_ist }}</td>
+            <td>{{ l.type }}</td>
+            <td class="mono">{{ l.trade_tag or "—" }}</td>
+            <td>{{ l.side or "—" }}</td>
+            <td class="right mono">
+              {% if l.qty is not none %}{{ "%.6f"|format(l.qty or 0) }}{% else %}—{% endif %}
+            </td>
+            <td class="right mono">
+              {% if l.price is not none %}{{ "%.2f"|format(l.price or 0) }}{% else %}—{% endif %}
+            </td>
+            <td class="right mono" style="color: {{ '#22c55e' if (l.amount or 0) >= 0 else '#ef4444' }}">
+              {{ "%.2f"|format(l.amount or 0) }}
+            </td>
+            <td class="right mono">{{ "%.2f"|format(l.balance_after or 0) }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Raw events -->
+  <div class="card">
+    <h2>Raw Event Stream (last 300)</h2>
+    <div class="scroll">
+      <table>
+        <thead>
+        <tr>
+          <th>Time (IST)</th><th>Event</th><th>Symbol / TF</th><th>Side</th>
+          <th class="right">Price</th><th>Tag</th><th>Raw</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for e in events %}
+        <tr>
+          <td class="mono">{{ e.ts_ist }}</td>
+          <td>{{ e.event }}</td>
+          <td>{{ e.symbol }} <span class="muted">/ {{ e.tf }}</span></td>
+          <td>{{ e.side or "—" }}</td>
+          <td class="right mono">{{ "%.2f"|format(e.price or 0) }}</td>
+          <td class="mono">{{ e.tag }}</td>
+          <td class="small mono"><span class="muted">{{ e.raw }}</span></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
