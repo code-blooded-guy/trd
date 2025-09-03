@@ -205,18 +205,44 @@ async def tv_webhook(request: Request):
                 logger.error(f"[Webhook] No ENTRY trade found for tag: {tag}")
                 return JSONResponse({"status": "error", "message": f"No ENTRY trade found for tag: {tag}"}, status_code=400)
 
-            entry_trade = dict(entry_trades[0])
-            entry_price = entry_trade["price"]
-            position_size = entry_trade["wallet_after"] - get_wallet_balance() if entry_trade["wallet_after"] else 0
-            
-            # Calculate P&L
-            if side == "BUY":
-                pnl = position_size * (price - entry_price) / entry_price
-            else:  # SELL
-                pnl = position_size * (entry_price - price) / entry_price
+            try:
+                entry_trade = dict(entry_trades[0])
+                entry_price = safe_float(entry_trade["price"])
                 
-            balance_before = get_wallet_balance()
-            balance_after = balance_before + position_size + pnl
+                if not entry_price:
+                    logger.error(f"[Webhook] Invalid entry price for tag: {tag}")
+                    return JSONResponse({"status": "error", "message": "Invalid entry price"}, status_code=400)
+
+                # Calculate position size from wallet transaction for this ENTRY
+                wallet_entries = query_db(
+                    "SELECT change FROM wallet WHERE trade_id = ? AND reason LIKE 'ENTRY_%' ORDER BY id DESC LIMIT 1;",
+                    (entry_trade["id"],)
+                )
+                if wallet_entries:
+                    position_size = abs(wallet_entries[0]["change"])  # Make positive (was negative when deducted)
+                    logger.info(f"[Webhook] Found position_size from wallet: ₹{position_size:,.2f}")
+                else:
+                    # Fallback: estimate 30% of what the balance likely was before entry
+                    # Since we know wallet_after, estimate position_size
+                    current_balance = get_wallet_balance()
+                    estimated_balance_before = current_balance / 0.7  # If 70% remained, original was this
+                    position_size = estimated_balance_before * 0.3
+                    logger.info(f"[Webhook] Estimated position_size: ₹{position_size:,.2f}")
+                
+                # Calculate P&L
+                if side == "BUY":
+                    pnl = position_size * (price - entry_price) / entry_price
+                else:  # SELL
+                    pnl = position_size * (entry_price - price) / entry_price
+                    
+                balance_before = get_wallet_balance()
+                balance_after = balance_before + position_size + pnl
+                
+                logger.info(f"[Webhook] {event} {side} {symbol} at {price} - Position: ₹{position_size:,.2f}, P&L: ₹{pnl:+,.2f}, Tag: {tag}")
+                
+            except Exception as e:
+                logger.error(f"[Webhook] Error processing {event} for tag {tag}: {e}")
+                return JSONResponse({"status": "error", "message": f"Processing error: {str(e)}"}, status_code=500)
             
             # Insert trade record
             queries = [

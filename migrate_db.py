@@ -46,6 +46,7 @@ def create_tables():
             t2 REAL,
             tag TEXT,
             wallet_after REAL,
+
             raw TEXT,
             UNIQUE(tag, event)
         );
