@@ -1,234 +1,310 @@
 import sqlite3
 import json
 import time
-from datetime import datetime, timedelta, timezone
+import logging
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 # ======================================================
-# FastAPI App
+# Configuration
 # ======================================================
-app = FastAPI()
+app = FastAPI(title="TradingView Paper Trading Logger")
 templates = Jinja2Templates(directory="templates")
 
 DB_PATH = "trades.db"
+SECRET_KEY = "MY_ULTRA_SECRET"
 IST = timezone(timedelta(hours=5, minutes=30))
 
-# ======================================================
-# Helpers
-# ======================================================
-def utc_str_to_ist_str(s: Optional[str]) -> Optional[str]:
-    if not s:
-        return None
-    try:
-        dt = datetime.fromisoformat(str(s).replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(IST).strftime("%Y-%m-%d %H:%M:%S")
-    except Exception:
-        return s
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
+# ======================================================
+# Database Helpers
+# ======================================================
 def get_conn():
+    """Get database connection with proper settings"""
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA busy_timeout=5000;")
     return conn
 
-def init_db():
-    conn = get_conn()
-    cur = conn.cursor()
-
-    # Trades Table
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS trades (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ts_utc TEXT NOT NULL,
-        event TEXT NOT NULL,
-        symbol TEXT,
-        side TEXT,
-        tf TEXT,
-        price REAL,
-        sigH REAL,
-        sigL REAL,
-        sl REAL,
-        t1 REAL,
-        t2 REAL,
-        t3 REAL,
-        tag TEXT,
-        status TEXT,
-        entry REAL,
-        exit_price REAL,
-        pnl REAL,
-        qty REAL,
-        ts_entry_utc TEXT,
-        t1_time_utc TEXT,
-        t2_time_utc TEXT,
-        t3_time_utc TEXT,
-        sl_time_utc TEXT,
-        raw TEXT
-    );
-    """)
-
-    # Wallet Table
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS wallet (
-        id INTEGER PRIMARY KEY CHECK (id=1),
-        balance REAL
-    );
-    """)
-    conn.commit()
-
-    # Seed wallet if not exists
-    cur.execute("SELECT balance FROM wallet WHERE id=1;")
-    if not cur.fetchone():
-        cur.execute("INSERT INTO wallet (id, balance) VALUES (1, ?);", (1000000,))
-    conn.commit()
-    conn.close()
-
-def exec_write_many(stmts, retries=5, backoff=0.2):
+def exec_with_retry(queries, retries=5, backoff=0.2):
+    """Execute multiple queries with retry logic for database locks"""
     for attempt in range(retries):
         try:
             conn = get_conn()
             cur = conn.cursor()
-            for sql, params in stmts:
+            for sql, params in queries:
                 cur.execute(sql, params)
             conn.commit()
             conn.close()
             return
         except sqlite3.OperationalError as e:
-            if "locked" in str(e) and attempt < retries - 1:
-                time.sleep(backoff * (2**attempt))
+            if "locked" in str(e).lower() and attempt < retries - 1:
+                time.sleep(backoff * (2 ** attempt))
+                logger.warning(f"Database locked, retrying... (attempt {attempt + 1})")
             else:
+                logger.error(f"Database operation failed after {retries} attempts: {e}")
                 raise
+        except Exception as e:
+            logger.error(f"Database error: {e}")
+            raise
 
-def query(sql, params=()):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(sql, params)
-    rows = cur.fetchall()
-    conn.close()
-    return rows
+def query_db(sql, params=()):
+    """Query database with error handling"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+        conn.close()
+        return rows
+    except Exception as e:
+        logger.error(f"Query error: {e}")
+        raise
 
 # ======================================================
 # Wallet Functions
 # ======================================================
 def get_wallet_balance():
-    row = query("SELECT balance FROM wallet WHERE id=1;")
-    return row[0]["balance"] if row else 0
+    """Get current wallet balance"""
+    rows = query_db("SELECT balance FROM wallet ORDER BY id DESC LIMIT 1;")
+    return rows[0]["balance"] if rows else 0.0
 
-def update_wallet(new_balance: float):
-    exec_write_many([("UPDATE wallet SET balance=? WHERE id=1;", (new_balance,))])
+def log_wallet_change(balance_before, balance_after, reason, trade_id=None):
+    """Log wallet change to wallet table"""
+    ts_utc = int(datetime.now(timezone.utc).timestamp())
+    change = balance_after - balance_before
+    
+    queries = [(
+        "INSERT INTO wallet (ts_utc, balance, change, reason, trade_id) VALUES (?, ?, ?, ?, ?);",
+        (ts_utc, balance_after, change, reason, trade_id)
+    )]
+    exec_with_retry(queries)
+    logger.info(f"[Wallet] {reason}: {balance_before:,.2f} → {balance_after:,.2f} (Δ{change:+,.2f})")
+
+# ======================================================
+# Utility Functions
+# ======================================================
+def safe_float(value):
+    """Safely convert value to float"""
+    try:
+        return float(value) if value is not None else None
+    except (ValueError, TypeError):
+        return None
+
+def utc_timestamp_to_ist_str(ts):
+    """Convert UTC timestamp to IST string"""
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        return dt.astimezone(IST).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return str(ts)
 
 # ======================================================
 # Routes
 # ======================================================
+@app.get("/")
+def root():
+    return {"status": "TradingView Paper Trading Logger", "health": "ok"}
+
 @app.get("/health")
 def health():
-    return {"status": "ok", "balance": get_wallet_balance()}
-
-@app.get("/dashboard", response_class=HTMLResponse)
-def dashboard(request: Request):
-    rows = query("SELECT * FROM trades ORDER BY id DESC LIMIT 500;")
-
-    trades = []
-    for r in rows:
-        d = dict(r)
-        for k in ("ts_entry_utc","t1_time_utc","t2_time_utc","t3_time_utc","sl_time_utc","ts_utc"):
-            if k in d:
-                d[k] = utc_str_to_ist_str(d[k])
-        trades.append(d)
-
-    context = {
-        "request": request,
-        "trades": trades,
-        "wallet": {"balance": get_wallet_balance()}
-    }
-    return templates.TemplateResponse("dashboard.html", context)
+    balance = get_wallet_balance()
+    return {"status": "ok", "wallet_balance": balance}
 
 @app.post("/tv-webhook")
 async def tv_webhook(request: Request):
-    body = await request.body()
+    """Handle TradingView webhook alerts"""
     try:
+        body = await request.body()
         data = json.loads(body.decode("utf-8"))
-    except Exception:
-        return JSONResponse({"status": "error", "msg": "invalid JSON"}, status_code=400)
+    except Exception as e:
+        logger.error(f"[Webhook] Invalid JSON: {e}")
+        return JSONResponse({"status": "error", "message": "Invalid JSON"}, status_code=400)
 
-    ts_utc = datetime.utcnow().replace(tzinfo=timezone.utc).isoformat()
+    # Validate secret
+    if data.get("secret") != SECRET_KEY:
+        logger.warning(f"[Webhook] Invalid secret from {request.client.host}")
+        return JSONResponse({"status": "error", "message": "Unauthorized"}, status_code=401)
 
-    # Required fields
-    event = data.get("event")
-    side  = data.get("side")
-    price = float(data.get("price")) if data.get("price") not in [None,"null"] else None
-    symbol= data.get("symbol")
-    tf    = data.get("tf")
-    tag   = data.get("tag")
-
-    sigH  = _safe_float(data.get("sigHigh"))
-    sigL  = _safe_float(data.get("sigLow"))
-    sl    = _safe_float(data.get("sl"))
-    t1    = _safe_float(data.get("t1"))
-    t2    = _safe_float(data.get("t2"))
-    t3    = _safe_float(data.get("t3"))
-
-    entry = None
-    qty   = None
-    exit_price = None
-    pnl   = None
-    status= None
-
-    # Wallet logic
-    balance = get_wallet_balance()
-    if event == "ENTRY" and price:
-        qty = (balance * 0.5) / price
-        entry = price
-        status = "OPEN"
-        update_wallet(balance - (qty * price))  # Deduct
-
-    elif event in ("TARGET1","TARGET2","TARGET3","STOPLOSS") and price:
-        # Find last OPEN trade with same tag
-        open_trades = query("SELECT * FROM trades WHERE tag=? AND status='OPEN' ORDER BY id DESC LIMIT 1;", (tag,))
-        if open_trades:
-            ot = dict(open_trades[0])
-            qty = ot["qty"]
-            entry = ot["entry"]
-            exit_price = price
-            pnl = (exit_price - entry) * qty if side == "BUY" else (entry - exit_price) * qty
-            status = event
-            update_wallet(balance + (qty * price) + (pnl or 0))
-
-    raw = json.dumps(data)
-
-    sql = """INSERT INTO trades(
-        ts_utc, event, symbol, side, tf, price, sigH, sigL, sl, t1, t2, t3, tag,
-        status, entry, exit_price, pnl, qty, ts_entry_utc, t1_time_utc, t2_time_utc, t3_time_utc, sl_time_utc, raw
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);"""
-
-    params = (
-        ts_utc, event, symbol, side, tf, price, sigH, sigL, sl, t1, t2, t3, tag,
-        status, entry, exit_price, pnl, qty,
-        ts_utc if event=="ENTRY" else None,
-        ts_utc if event=="TARGET1" else None,
-        ts_utc if event=="TARGET2" else None,
-        ts_utc if event=="TARGET3" else None,
-        ts_utc if event=="STOPLOSS" else None,
-        raw
-    )
-
-    exec_write_many([(sql, params)])
-    return {"status": "ok"}
-
-# ======================================================
-# Utilities
-# ======================================================
-def _safe_float(v):
+    # Extract and validate required fields
     try:
-        return float(v)
-    except Exception:
-        return None
+        event = data.get("event")
+        side = data.get("side")
+        symbol = data.get("symbol")
+        price = safe_float(data.get("price"))
+        tag = data.get("tag")
+
+        if not all([event, side, symbol, price, tag]):
+            raise ValueError("Missing required fields")
+
+        if event not in ["ENTRY", "TARGET1", "TARGET2", "STOPLOSS"]:
+            raise ValueError(f"Invalid event: {event}")
+
+        if side not in ["BUY", "SELL"]:
+            raise ValueError(f"Invalid side: {side}")
+
+    except Exception as e:
+        logger.error(f"[Webhook] Validation error: {e}")
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=400)
+
+    # Extract optional fields
+    tf = data.get("tf")
+    sigH = safe_float(data.get("sigHigh"))
+    sigL = safe_float(data.get("sigLow"))
+    sl = safe_float(data.get("sl"))
+    t1 = safe_float(data.get("t1"))
+    t2 = safe_float(data.get("t2"))
+
+    ts_utc = int(datetime.now(timezone.utc).timestamp())
+    raw_json = json.dumps(data)
+
+    try:
+        if event == "ENTRY":
+            # Handle new trade entry
+            balance_before = get_wallet_balance()
+            position_size = balance_before * 0.5  # Use 50% of balance
+            balance_after = balance_before - position_size
+            
+            # Insert trade record
+            queries = [
+                ("""INSERT INTO trades (ts_utc, event, side, symbol, tf, price, sigH, sigL, sl, t1, t2, tag, wallet_after, raw) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);""",
+                 (ts_utc, event, side, symbol, tf, price, sigH, sigL, sl, t1, t2, tag, balance_after, raw_json))
+            ]
+            exec_with_retry(queries)
+            
+            # Get the trade ID for wallet logging
+            trade_rows = query_db("SELECT id FROM trades WHERE tag = ? ORDER BY id DESC LIMIT 1;", (tag,))
+            trade_id = trade_rows[0]["id"] if trade_rows else None
+            
+            # Log wallet change
+            log_wallet_change(balance_before, balance_after, f"ENTRY_{side}_{symbol}", trade_id)
+            
+            logger.info(f"[Webhook] ENTRY {side} {symbol} at {price} - Position: ₹{position_size:,.2f}, Tag: {tag}")
+
+        elif event in ["TARGET1", "TARGET2", "STOPLOSS"]:
+            # Handle trade exit
+            # Find the original ENTRY trade
+            entry_trades = query_db(
+                "SELECT * FROM trades WHERE tag = ? AND event = 'ENTRY' ORDER BY id DESC LIMIT 1;", 
+                (tag,)
+            )
+            
+            if not entry_trades:
+                logger.error(f"[Webhook] No ENTRY trade found for tag: {tag}")
+                return JSONResponse({"status": "error", "message": f"No ENTRY trade found for tag: {tag}"}, status_code=400)
+
+            entry_trade = dict(entry_trades[0])
+            entry_price = entry_trade["price"]
+            position_size = entry_trade["wallet_after"] - get_wallet_balance() if entry_trade["wallet_after"] else 0
+            
+            # Calculate P&L
+            if side == "BUY":
+                pnl = position_size * (price - entry_price) / entry_price
+            else:  # SELL
+                pnl = position_size * (entry_price - price) / entry_price
+                
+            balance_before = get_wallet_balance()
+            balance_after = balance_before + position_size + pnl
+            
+            # Insert trade record
+            queries = [
+                ("""INSERT INTO trades (ts_utc, event, side, symbol, tf, price, sigH, sigL, sl, t1, t2, tag, wallet_after, raw) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);""",
+                 (ts_utc, event, side, symbol, tf, price, sigH, sigL, sl, t1, t2, tag, balance_after, raw_json))
+            ]
+            exec_with_retry(queries)
+            
+            # Get the trade ID for wallet logging
+            trade_rows = query_db("SELECT id FROM trades WHERE tag = ? ORDER BY id DESC LIMIT 1;", (tag,))
+            trade_id = trade_rows[0]["id"] if trade_rows else None
+            
+            # Log wallet change
+            log_wallet_change(balance_before, balance_after, f"{event}_{side}_{symbol}", trade_id)
+            
+            logger.info(f"[Webhook] {event} {side} {symbol} at {price} - P&L: ₹{pnl:+,.2f}, Tag: {tag}")
+
+    except sqlite3.IntegrityError as e:
+        if "UNIQUE constraint failed" in str(e):
+            logger.error(f"[Webhook] Duplicate tag: {tag}")
+            return JSONResponse({"status": "error", "message": f"Duplicate tag: {tag}"}, status_code=409)
+        else:
+            logger.error(f"[Webhook] Database integrity error: {e}")
+            return JSONResponse({"status": "error", "message": "Database error"}, status_code=500)
+    
+    except Exception as e:
+        logger.error(f"[Webhook] Processing error: {e}")
+        return JSONResponse({"status": "error", "message": "Internal server error"}, status_code=500)
+
+    return {"status": "ok", "event": event, "symbol": symbol, "tag": tag}
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard(request: Request):
+    """Render trading dashboard"""
+    try:
+        # Get wallet balance
+        wallet_balance = get_wallet_balance()
+        
+        # Get trades data
+        trades_raw = query_db("SELECT * FROM trades ORDER BY ts_utc DESC LIMIT 200;")
+        trades = []
+        
+        for trade in trades_raw:
+            trade_dict = dict(trade)
+            # Convert UTC timestamp to IST string
+            trade_dict["ts_ist"] = utc_timestamp_to_ist_str(trade_dict["ts_utc"])
+            trades.append(trade_dict)
+        
+        # Get wallet ledger
+        ledger_raw = query_db("SELECT * FROM wallet ORDER BY ts_utc DESC LIMIT 100;")
+        ledger = []
+        
+        for entry in ledger_raw:
+            ledger_dict = dict(entry)
+            # Convert UTC timestamp to IST string  
+            ledger_dict["ts_ist"] = utc_timestamp_to_ist_str(ledger_dict["ts_utc"])
+            ledger.append(ledger_dict)
+
+        context = {
+            "request": request,
+            "wallet": {"balance": wallet_balance},
+            "trades": trades,
+            "ledger": ledger,
+            "secret_hint": SECRET_KEY[:8] + "..." if len(SECRET_KEY) > 8 else SECRET_KEY
+        }
+        
+        return templates.TemplateResponse("dashboard.html", context)
+        
+    except Exception as e:
+        logger.error(f"[Dashboard] Error: {e}")
+        return HTMLResponse(f"<h1>Dashboard Error</h1><p>{str(e)}</p>", status_code=500)
 
 # ======================================================
-# Init DB on startup
+# Initialize database on startup
 # ======================================================
-init_db()
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database on startup"""
+    try:
+        # Import and run migration
+        import migrate_db
+        migrate_db.main()
+        logger.info("[Startup] Database initialized successfully")
+    except Exception as e:
+        logger.error(f"[Startup] Database initialization failed: {e}")
+        raise
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

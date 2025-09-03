@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>TradingView Paper Logger — IST (Asia/Kolkata)</title>
+  <title>TradingView Paper Trading Logger — IST Dashboard</title>
   <style>
     :root{
       --bg:#0f1623; --card:#151e2e; --muted:#8aa0b6; --fg:#e5f0ff;
@@ -13,7 +13,7 @@
     *{box-sizing:border-box}
     body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.5 system-ui,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial}
     a{color:var(--blue);text-decoration:none}
-    .wrap{max-width:1280px;margin:24px auto;padding:0 16px}
+    .wrap{max-width:1400px;margin:24px auto;padding:0 16px}
     .grid{display:grid;gap:16px}
     .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
     h1{margin:0 0 8px;font-size:22px;font-weight:700}
@@ -24,23 +24,27 @@
     .btn{padding:8px 12px;border-radius:10px;background:#1e293b;color:#e2e8f0;border:1px solid var(--border);cursor:pointer}
     .btn:hover{filter:brightness(1.1)}
     .pill{padding:2px 8px;border-radius:999px;background:var(--pill);font-size:12px}
-    .pill.open{background:#1c2d1e;color:#b7ffb4}
-    .pill.part{background:#2f2a18;color:#ffe4a6}
-    .pill.cl2{background:#16243a;color:#acd8ff}
-    .pill.sl{background:#3a1a1a;color:#ffb3b3}
+    .pill.entry{background:#1c2d1e;color:#b7ffb4}
+    .pill.target1{background:#2f2a18;color:#ffe4a6}
+    .pill.target2{background:#16243a;color:#acd8ff}
+    .pill.stoploss{background:#3a1a1a;color:#ffb3b3}
+    .pill.buy{background:#1c2d1e;color:#b7ffb4}
+    .pill.sell{background:#3a1a1a;color:#ffb3b3}
     table{width:100%;border-collapse:collapse}
     th,td{padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top}
     th{color:#c9d7ee;text-align:left;white-space:nowrap;position:sticky;top:0;background:var(--card);z-index:1}
     td.right{text-align:right}
-    .kpi{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+    td.center{text-align:center}
+    .kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
     .kpi .card{padding:14px}
-    .kpi .v{font-size:20px;font-weight:800}
-    .filters .row{gap:10px}
-    input,select{background:#0f172a;border:1px solid var(--border);color:#e5f0ff;border-radius:8px;padding:8px 10px}
-    code{font-family:var(--mono);background:#0b1320;border:1px solid var(--border);padding:2px 6px;border-radius:8px}
-    .scroll{max-height:420px;overflow:auto;border-radius:10px}
+    .kpi .v{font-size:24px;font-weight:800;margin:4px 0}
+    .scroll{max-height:500px;overflow:auto;border-radius:10px}
     .small{font-size:13px}
-    .gap{gap:12px}
+    .positive{color:var(--green)}
+    .negative{color:var(--red)}
+    .filters{margin-bottom:16px}
+    input,select{background:#0f172a;border:1px solid var(--border);color:#e5f0ff;border-radius:8px;padding:8px 10px;margin:4px}
+    code{font-family:var(--mono);background:#0b1320;border:1px solid var(--border);padding:2px 6px;border-radius:8px}
   </style>
 </head>
 <body>
@@ -48,162 +52,95 @@
 
   <!-- Header -->
   <div class="row" style="justify-content:space-between;align-items:center">
-    <h1>TradingView Paper Logger — <span class="muted">IST (Asia/Kolkata)</span></h1>
+    <h1>TradingView Paper Trading Logger — <span class="muted">IST Dashboard</span></h1>
     <div class="row">
-      <form method="post" action="/clear-db" onsubmit="return confirm('Clear all trades & events? Wallet stays.');">
-        <button class="btn" type="submit">Clear Trades</button>
-      </form>
-      <button class="btn" onclick="location.reload()">Refresh</button>
+      <button class="btn" onclick="location.reload()">🔄 Refresh</button>
     </div>
   </div>
 
-  <!-- Wallet summary -->
+  <!-- KPIs -->
   <div class="kpi">
     <div class="card">
-      <div class="muted small">Wallet Balance</div>
-      <div class="v mono">₹ {{ "%.2f"|format(wallet.balance) }}</div>
-      <div class="muted small">Secret for TV: <code>{{ secret_hint }}</code></div>
+      <div class="muted small">💰 Wallet Balance</div>
+      <div class="v mono">₹ {{ "{:,.2f}".format(wallet.balance) }}</div>
+      <div class="muted small">Current available funds</div>
     </div>
     <div class="card">
-      <div class="muted small">Allocation / trade</div>
+      <div class="muted small">📊 Position Size</div>
       <div class="v mono">50% of balance</div>
-      <div class="muted small">ENTRY spends 50%, T1 returns 50%, T2/SL returns rest</div>
+      <div class="muted small">₹ {{ "{:,.2f}".format(wallet.balance * 0.5) }} per trade</div>
     </div>
     <div class="card">
-      <div class="muted small">Open Trades</div>
-      <div class="v mono">
-        {{
-          trades | selectattr("status","in",["OPEN","PARTIAL"]) | list | length
-        }}
-      </div>
-      <div class="muted small">Open = not fully exited yet</div>
+      <div class="muted small">📈 Total Trades</div>
+      <div class="v mono">{{ trades|length }}</div>
+      <div class="muted small">All events logged</div>
     </div>
     <div class="card">
-      <div class="muted small">Realized P&L (sum)</div>
-      <div class="v mono">
-        {% set s = 0 %}
-        {% for t in trades %}{% set s = s + (t.realized_pnl or 0) %}{% endfor %}
-        {{ "%.2f"|format(s) }}
-      </div>
-      <div class="muted small">Across all trades</div>
+      <div class="muted small">🔑 Webhook Secret</div>
+      <div class="v"><code>{{ secret_hint }}</code></div>
+      <div class="muted small">For TradingView alerts</div>
     </div>
   </div>
 
-  <!-- Filters (with Date/Time range in IST) -->
-  <div class="card filters">
-    <form class="row gap" method="get" action="/dashboard">
-      <input type="text" name="symbol" placeholder="Symbol" value="{{ filters.symbol }}">
-      <select name="side">
-        <option value="">Side (any)</option>
-        <option value="BUY" {{ 'selected' if filters.side=='BUY' else '' }}>BUY</option>
-        <option value="SELL" {{ 'selected' if filters.side=='SELL' else '' }}>SELL</option>
-      </select>
-      <select name="status">
-        <option value="">Status (any)</option>
-        {% for s in ["OPEN","PARTIAL","CLOSED_T2","CLOSED_SL","EXPIRED"] %}
-        <option value="{{ s }}" {{ 'selected' if filters.status==s else '' }}>{{ s }}</option>
-        {% endfor %}
-      </select>
-      <input type="text" name="q" placeholder="Search tag/symbol/tf…" style="min-width:240px" value="{{ filters.q }}">
-      <select name="sort">
-        {% set s=filters.sort %}
-        <option value="-ts_entry_utc" {{ 'selected' if s=='-ts_entry_utc' else '' }}>Newest first</option>
-        <option value="ts_entry_utc" {{ 'selected' if s=='ts_entry_utc' else '' }}>Oldest first</option>
-        <option value="symbol" {{ 'selected' if s=='symbol' else '' }}>Symbol A→Z</option>
-        <option value="-symbol" {{ 'selected' if s=='-symbol' else '' }}>Symbol Z→A</option>
-        <option value="-entry" {{ 'selected' if s=='-entry' else '' }}>Entry High→Low</option>
-        <option value="entry" {{ 'selected' if s=='entry' else '' }}>Entry Low→High</option>
-        <option value="status" {{ 'selected' if s=='status' else '' }}>Status A→Z</option>
-        <option value="-status" {{ 'selected' if s=='-status' else '' }}>Status Z→A</option>
-      </select>
-
-      <!-- New: Date/Time range (IST) -->
-      <div class="row">
-        <span class="muted" style="align-self:center">Range (IST):</span>
-        <input type="datetime-local" name="from" value="{{ filters.from }}" />
-        <input type="datetime-local" name="to"   value="{{ filters.to }}" />
-      </div>
-
-      <button class="btn" type="submit">Apply</button>
-    </form>
-  </div>
-
-  <!-- Trades -->
+  <!-- Trades Table -->
   <div class="card">
-    <h2>Trades (latest 200)</h2>
+    <h2>📋 Trade Events (Latest 200)</h2>
     <div class="scroll">
       <table>
         <thead>
         <tr>
-          <th>Entry Time<br><span class="muted small">IST</span></th>
-          <th>Symbol / TF</th>
+          <th>Time (IST)</th>
+          <th>Event</th>
           <th>Side</th>
-          <th>Candle</th>
-          <th class="right">Entry @</th>
+          <th>Symbol</th>
+          <th>TF</th>
+          <th class="right">Price</th>
           <th class="right">Signal H/L</th>
-          <th class="right">Qty</th>
-          <th class="right">Spent</th>
-          <th class="right">T1 @ / Time</th>
-          <th class="right">T2 @ / Time</th>
-          <th class="right">SL @ / Time</th>
-          <th>Status</th>
-          <th class="right">Realized P&L</th>
+          <th class="right">SL/T1/T2</th>
+          <th class="right">Wallet After</th>
           <th>Tag</th>
         </tr>
         </thead>
         <tbody>
         {% if trades|length == 0 %}
-          <tr><td colspan="14" class="muted">No entries yet.</td></tr>
+          <tr><td colspan="10" class="muted center">No trades yet. Send webhook from TradingView to start logging.</td></tr>
         {% else %}
-          {% for t in trades %}
+          {% for trade in trades %}
           <tr>
-            <td class="mono">{{ t.ts_entry_ist }}</td>
-            <td>{{ t.symbol }} <span class="muted">/ {{ t.tf }}</span></td>
+            <td class="mono small">{{ trade.ts_ist or "—" }}</td>
             <td>
-              {% if t.side == 'BUY' %}<span class="pill open">BUY</span>
-              {% elif t.side == 'SELL' %}<span class="pill sl">SELL</span>
-              {% else %}<span class="pill">{{ t.side or "—" }}</span>{% endif %}
+              {% if trade.event == 'ENTRY' %}<span class="pill entry">ENTRY</span>
+              {% elif trade.event == 'TARGET1' %}<span class="pill target1">TARGET1</span>
+              {% elif trade.event == 'TARGET2' %}<span class="pill target2">TARGET2</span>
+              {% elif trade.event == 'STOPLOSS' %}<span class="pill stoploss">STOPLOSS</span>
+              {% else %}<span class="pill">{{ trade.event }}</span>{% endif %}
             </td>
-            <td>{{ t.candle or "—" }}</td>
-            <td class="right mono">{{ "%.2f"|format(t.entry) if t.entry else "—" }}</td>
-            <td class="right mono">
-              {% if t.sig_high or t.sig_low %}
-                H {{ "%.2f"|format(t.sig_high) if t.sig_high else "—" }}
-                <span class="muted">/</span>
-                L {{ "%.2f"|format(t.sig_low) if t.sig_low else "—" }}
-              {% else %}—{% endif %}
-            </td>
-            <td class="right mono">{{ "%.6f"|format(t.qty or 0) }}</td>
-            <td class="right mono">{{ "%.2f"|format(t.spent or 0) }}</td>
-
-            <td class="right mono">
-              {% if t.t1_price %}
-                {{ "%.2f"|format(t.t1_price) }} <span class="muted">/ {{ t.t1_time_ist }}</span>
-              {% else %}—{% endif %}
-            </td>
-            <td class="right mono">
-              {% if t.t2_price %}
-                {{ "%.2f"|format(t.t2_price) }} <span class="muted">/ {{ t.t2_time_ist }}</span>
-              {% else %}—{% endif %}
-            </td>
-            <td class="right mono">
-              {% if t.sl_price %}
-                {{ "%.2f"|format(t.sl_price) }} <span class="muted">/ {{ t.sl_time_ist }}</span>
-              {% else %}—{% endif %}
-            </td>
-
             <td>
-              {% if t.status == 'OPEN' %}<span class="pill open">OPEN</span>
-              {% elif t.status == 'PARTIAL' %}<span class="pill part">PARTIAL</span>
-              {% elif t.status == 'CLOSED_T2' %}<span class="pill cl2">CLOSED_T2</span>
-              {% elif t.status == 'CLOSED_SL' %}<span class="pill sl">CLOSED_SL</span>
-              {% else %}<span class="pill">{{ t.status or "—" }}</span>{% endif %}
+              {% if trade.side == 'BUY' %}<span class="pill buy">BUY</span>
+              {% elif trade.side == 'SELL' %}<span class="pill sell">SELL</span>
+              {% else %}<span class="pill">{{ trade.side or "—" }}</span>{% endif %}
             </td>
-
-            <td class="right mono" style="color: {{ '#22c55e' if (t.realized_pnl or 0) >= 0 else '#ef4444' }}">
-              {{ "%.2f"|format(t.realized_pnl or 0) }}
+            <td class="mono">{{ trade.symbol or "—" }}</td>
+            <td class="mono small">{{ trade.tf or "—" }}</td>
+            <td class="right mono">
+              {% if trade.price %}₹ {{ "{:.2f}".format(trade.price) }}{% else %}—{% endif %}
             </td>
-            <td class="mono">{{ t.tag }}</td>
+            <td class="right mono small">
+              {% if trade.sigH or trade.sigL %}
+                H: {{ "{:.2f}".format(trade.sigH) if trade.sigH else "—" }}<br>
+                L: {{ "{:.2f}".format(trade.sigL) if trade.sigL else "—" }}
+              {% else %}—{% endif %}
+            </td>
+            <td class="right mono small">
+              {% if trade.sl %}SL: {{ "{:.2f}".format(trade.sl) }}<br>{% endif %}
+              {% if trade.t1 %}T1: {{ "{:.2f}".format(trade.t1) }}<br>{% endif %}
+              {% if trade.t2 %}T2: {{ "{:.2f}".format(trade.t2) }}{% endif %}
+              {% if not (trade.sl or trade.t1 or trade.t2) %}—{% endif %}
+            </td>
+            <td class="right mono">
+              {% if trade.wallet_after %}₹ {{ "{:,.2f}".format(trade.wallet_after) }}{% else %}—{% endif %}
+            </td>
+            <td class="mono small">{{ trade.tag or "—" }}</td>
           </tr>
           {% endfor %}
         {% endif %}
@@ -212,75 +149,88 @@
     </div>
   </div>
 
-  <!-- Ledger -->
+  <!-- Wallet Ledger -->
   <div class="card">
-    <h2>Wallet Ledger (latest 200)</h2>
+    <h2>💳 Wallet Ledger (Latest 100)</h2>
     <div class="scroll">
       <table>
         <thead>
         <tr>
           <th>Time (IST)</th>
-          <th>Type</th>
-          <th>Tag</th>
-          <th>Side</th>
-          <th class="right">Qty</th>
-          <th class="right">Price</th>
-          <th class="right">Amount</th>
+          <th>Reason</th>
+          <th class="right">Change</th>
           <th class="right">Balance After</th>
+          <th>Trade ID</th>
         </tr>
         </thead>
         <tbody>
-        {% for l in ledger %}
+        {% if ledger|length == 0 %}
+          <tr><td colspan="5" class="muted center">No wallet transactions yet.</td></tr>
+        {% else %}
+          {% for entry in ledger %}
           <tr>
-            <td class="mono">{{ l.ts_ist }}</td>
-            <td>{{ l.type }}</td>
-            <td class="mono">{{ l.trade_tag or "—" }}</td>
-            <td>{{ l.side or "—" }}</td>
-            <td class="right mono">
-              {% if l.qty is not none %}{{ "%.6f"|format(l.qty or 0) }}{% else %}—{% endif %}
+            <td class="mono small">{{ entry.ts_ist or "—" }}</td>
+            <td class="mono small">{{ entry.reason or "—" }}</td>
+            <td class="right mono {{ 'positive' if (entry.change or 0) >= 0 else 'negative' }}">
+              {{ "{:+,.2f}".format(entry.change or 0) }}
             </td>
             <td class="right mono">
-              {% if l.price is not none %}{{ "%.2f"|format(l.price or 0) }}{% else %}—{% endif %}
+              {% if entry.balance %}₹ {{ "{:,.2f}".format(entry.balance) }}{% else %}—{% endif %}
             </td>
-            <td class="right mono" style="color: {{ '#22c55e' if (l.amount or 0) >= 0 else '#ef4444' }}">
-              {{ "%.2f"|format(l.amount or 0) }}
-            </td>
-            <td class="right mono">{{ "%.2f"|format(l.balance_after or 0) }}</td>
+            <td class="mono small">{{ entry.trade_id or "—" }}</td>
           </tr>
-        {% endfor %}
+          {% endfor %}
+        {% endif %}
         </tbody>
       </table>
     </div>
   </div>
 
-  <!-- Raw events -->
+  <!-- System Info -->
   <div class="card">
-    <h2>Raw Event Stream (last 300)</h2>
-    <div class="scroll">
-      <table>
-        <thead>
-        <tr>
-          <th>Time (IST)</th><th>Event</th><th>Symbol / TF</th><th>Side</th>
-          <th class="right">Price</th><th>Tag</th><th>Raw</th>
-        </tr>
-        </thead>
-        <tbody>
-        {% for e in events %}
-        <tr>
-          <td class="mono">{{ e.ts_ist }}</td>
-          <td>{{ e.event }}</td>
-          <td>{{ e.symbol }} <span class="muted">/ {{ e.tf }}</span></td>
-          <td>{{ e.side or "—" }}</td>
-          <td class="right mono">{{ "%.2f"|format(e.price or 0) }}</td>
-          <td class="mono">{{ e.tag }}</td>
-          <td class="small mono"><span class="muted">{{ e.raw }}</span></td>
-        </tr>
-        {% endfor %}
-        </tbody>
-      </table>
+    <h2>🔧 System Information</h2>
+    <div class="row" style="gap:24px;flex-wrap:wrap">
+      <div>
+        <strong>Webhook Endpoint:</strong> 
+        <code>POST /tv-webhook</code>
+      </div>
+      <div>
+        <strong>Strategy:</strong> 
+        <span class="muted">50% balance per ENTRY, close on TARGET1/TARGET2/STOPLOSS</span>
+      </div>
+      <div>
+        <strong>Database:</strong> 
+        <span class="muted">SQLite with WAL mode</span>
+      </div>
+    </div>
+    
+    <div style="margin-top:16px">
+      <details>
+        <summary style="cursor:pointer;color:var(--blue)">📝 Sample Webhook JSON</summary>
+        <pre style="background:#0b1320;padding:12px;border-radius:8px;margin-top:8px;overflow:auto"><code>{
+  "secret": "{{ secret_hint }}",
+  "event": "ENTRY",
+  "side": "BUY",
+  "symbol": "NSE:RELIANCE",
+  "tf": "5m",
+  "price": 2450.75,
+  "sigHigh": 2460.0,
+  "sigLow": 2440.0,
+  "sl": 2420.0,
+  "t1": 2480.0,
+  "t2": 2510.0,
+  "tag": "unique-trade-id"
+}</code></pre>
+      </details>
     </div>
   </div>
 
 </div>
+
+<script>
+// Auto-refresh every 30 seconds
+setTimeout(() => location.reload(), 30000);
+</script>
+
 </body>
 </html>
