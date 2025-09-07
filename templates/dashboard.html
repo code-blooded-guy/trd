@@ -172,8 +172,8 @@
     <div class="card">
       <div class="muted small">🎯 Success Rate</div>
       <div class="v mono">
-        {% if closed_trades > 0 %}
-          {{ "{:.1f}%".format((closed_trades - [t for t in trades if t.status == 'CLOSED' and (t.realized_pnl or 0) < 0]|length) / closed_trades * 100) }}
+        {% if success_rate is defined and success_rate is not none %}
+          {{ "{:.1f}%".format(success_rate) }}
         {% else %}
           —
         {% endif %}

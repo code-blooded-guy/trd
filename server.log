@@ -51,3 +51,39 @@ INFO:     Started server process [219]
 INFO:     Waiting for application startup.
 2025-09-07 17:01:34,271 - INFO - [Startup] Database v7 initialized successfully
 INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'app_v7.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [219]
+INFO:     Started server process [794]
+INFO:     Waiting for application startup.
+2025-09-07 17:08:59,305 - INFO - [Startup] Database v7 initialized successfully
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'app_v7.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [794]
+INFO:     Started server process [811]
+INFO:     Waiting for application startup.
+2025-09-07 17:09:07,126 - INFO - [Startup] Database v7 initialized successfully
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'app.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [811]
+INFO:     Started server process [944]
+INFO:     Waiting for application startup.
+2025-09-07 17:09:13,318 - INFO - [Startup] Database v7 initialized successfully
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'app_v7.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [944]
+INFO:     Started server process [971]
+INFO:     Waiting for application startup.
+2025-09-07 17:09:36,009 - INFO - [Startup] Database v7 initialized successfully
+INFO:     Application startup complete.

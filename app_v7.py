@@ -529,6 +529,13 @@ def dashboard(
         open_trades = [t for t in trades if t["status"] == "OPEN"]
         closed_trades = [t for t in trades if t["status"] == "CLOSED"]
         total_pnl = sum([t["realized_pnl"] or 0 for t in closed_trades])
+        
+        # Calculate success rate (profitable trades percentage)
+        if len(closed_trades) > 0:
+            profitable_trades = [t for t in closed_trades if (t["realized_pnl"] or 0) > 0]
+            success_rate = (len(profitable_trades) / len(closed_trades)) * 100
+        else:
+            success_rate = None
 
         context = {
             "request": request,
@@ -546,6 +553,7 @@ def dashboard(
             "open_trades": len(open_trades),
             "closed_trades": len(closed_trades),
             "total_pnl": total_pnl,
+            "success_rate": success_rate,
             "ledger_count": len(ledger)
         }
         
