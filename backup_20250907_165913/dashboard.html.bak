@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>TradingView Paper Trading Logger — IST Dashboard</title>
+  <style>
+    :root{
+      --bg:#0f1623; --card:#151e2e; --muted:#8aa0b6; --fg:#e5f0ff;
+      --green:#22c55e; --red:#ef4444; --amber:#f59e0b; --blue:#60a5fa; --pill:#23314b;
+      --border:#25324a; --mono: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.5 system-ui,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial}
+    a{color:var(--blue);text-decoration:none}
+    .wrap{max-width:1400px;margin:24px auto;padding:0 16px}
+    .grid{display:grid;gap:16px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
+    h1{margin:0 0 8px;font-size:22px;font-weight:700}
+    h2{margin:0 0 8px;font-size:18px}
+    .muted{color:var(--muted)}
+    .mono{font-family:var(--mono)}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .btn{padding:8px 12px;border-radius:10px;background:#1e293b;color:#e2e8f0;border:1px solid var(--border);cursor:pointer}
+    .btn:hover{filter:brightness(1.1)}
+    .pill{padding:2px 8px;border-radius:999px;background:var(--pill);font-size:12px}
+    .pill.entry{background:#1c2d1e;color:#b7ffb4}
+    .pill.target1{background:#2f2a18;color:#ffe4a6}
+    .pill.target2{background:#16243a;color:#acd8ff}
+    .pill.stoploss{background:#3a1a1a;color:#ffb3b3}
+    .pill.buy{background:#1c2d1e;color:#b7ffb4}
+    .pill.sell{background:#3a1a1a;color:#ffb3b3}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+    th{color:#c9d7ee;text-align:left;white-space:nowrap;position:sticky;top:0;background:var(--card);z-index:1}
+    td.right{text-align:right}
+    td.center{text-align:center}
+    .kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+    .kpi .card{padding:14px}
+    .kpi .v{font-size:24px;font-weight:800;margin:4px 0}
+    .scroll{max-height:500px;overflow:auto;border-radius:10px}
+    .small{font-size:13px}
+    .positive{color:var(--green)}
+    .negative{color:var(--red)}
+    .filters{margin-bottom:16px}
+    input,select{background:#0f172a;border:1px solid var(--border);color:#e5f0ff;border-radius:8px;padding:8px 10px;margin:4px}
+    code{font-family:var(--mono);background:#0b1320;border:1px solid var(--border);padding:2px 6px;border-radius:8px}
+  </style>
+</head>
+<body>
+<div class="wrap grid">
+
+  <!-- Header -->
+  <div class="row" style="justify-content:space-between;align-items:center">
+    <h1>TradingView Paper Trading Logger — <span class="muted">IST Dashboard</span></h1>
+    <div class="row">
+      <button class="btn" onclick="addFunds()">💰 Add Funds</button>
+      <button class="btn" onclick="clearTrades()" style="background:#dc2626;border-color:#dc2626">🗑️ Clear Trades</button>
+      <button class="btn" onclick="location.reload()">🔄 Refresh</button>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpi">
+    <div class="card">
+      <div class="muted small">💰 Wallet Balance</div>
+      <div class="v mono">₹ {{ "{:,.2f}".format(wallet.balance) }}</div>
+      <div class="muted small">Current available funds</div>
+    </div>
+    <div class="card">
+      <div class="muted small">📊 Position Size</div>
+      <div class="v mono">30% of balance</div>
+      <div class="muted small">₹ {{ "{:,.2f}".format(wallet.balance * 0.3) }} per trade</div>
+    </div>
+    <div class="card">
+      <div class="muted small">📈 Total Trades</div>
+      <div class="v mono">{{ trades|length }}</div>
+      <div class="muted small">All events logged</div>
+    </div>
+    <div class="card">
+      <div class="muted small">🔑 Webhook Secret</div>
+      <div class="v"><code>{{ secret_hint }}</code></div>
+      <div class="muted small">For TradingView alerts</div>
+    </div>
+  </div>
+
+  <!-- Trades Table -->
+  <div class="card">
+    <h2>📋 Trade Events (Latest 200)</h2>
+    <div class="scroll">
+      <table>
+        <thead>
+        <tr>
+          <th>Time (IST)</th>
+          <th>Event</th>
+          <th>Side</th>
+          <th>Symbol</th>
+          <th>TF</th>
+          <th class="right">Price</th>
+          <th class="right">Signal H/L</th>
+          <th class="right">SL/T1/T2</th>
+          <th class="right">Wallet After</th>
+          <th>Tag</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% if trades|length == 0 %}
+          <tr><td colspan="10" class="muted center">No trades yet. Send webhook from TradingView to start logging.</td></tr>
+        {% else %}
+          {% for trade in trades %}
+          <tr>
+            <td class="mono small">{{ trade.ts_ist or "—" }}</td>
+            <td>
+              {% if trade.event == 'ENTRY' %}<span class="pill entry">ENTRY</span>
+              {% elif trade.event == 'TARGET1' %}<span class="pill target1">TARGET1</span>
+              {% elif trade.event == 'TARGET2' %}<span class="pill target2">TARGET2</span>
+              {% elif trade.event == 'STOPLOSS' %}<span class="pill stoploss">STOPLOSS</span>
+              {% else %}<span class="pill">{{ trade.event }}</span>{% endif %}
+            </td>
+            <td>
+              {% if trade.side == 'BUY' %}<span class="pill buy">BUY</span>
+              {% elif trade.side == 'SELL' %}<span class="pill sell">SELL</span>
+              {% else %}<span class="pill">{{ trade.side or "—" }}</span>{% endif %}
+            </td>
+            <td class="mono">{{ trade.symbol or "—" }}</td>
+            <td class="mono small">{{ trade.tf or "—" }}</td>
+            <td class="right mono">
+              {% if trade.price %}₹ {{ "{:.2f}".format(trade.price) }}{% else %}—{% endif %}
+            </td>
+            <td class="right mono small">
+              {% if trade.sigH or trade.sigL %}
+                H: {{ "{:.2f}".format(trade.sigH) if trade.sigH else "—" }}<br>
+                L: {{ "{:.2f}".format(trade.sigL) if trade.sigL else "—" }}
+              {% else %}—{% endif %}
+            </td>
+            <td class="right mono small">
+              {% if trade.sl %}SL: {{ "{:.2f}".format(trade.sl) }}<br>{% endif %}
+              {% if trade.t1 %}T1: {{ "{:.2f}".format(trade.t1) }}<br>{% endif %}
+              {% if trade.t2 %}T2: {{ "{:.2f}".format(trade.t2) }}{% endif %}
+              {% if not (trade.sl or trade.t1 or trade.t2) %}—{% endif %}
+            </td>
+            <td class="right mono">
+              {% if trade.wallet_after %}₹ {{ "{:,.2f}".format(trade.wallet_after) }}{% else %}—{% endif %}
+            </td>
+            <td class="mono small">{{ trade.tag or "—" }}</td>
+          </tr>
+          {% endfor %}
+        {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Wallet Ledger -->
+  <div class="card">
+    <h2>💳 Wallet Ledger (Latest 100)</h2>
+    <div class="scroll">
+      <table>
+        <thead>
+        <tr>
+          <th>Time (IST)</th>
+          <th>Reason</th>
+          <th class="right">Change</th>
+          <th class="right">Balance After</th>
+          <th>Trade ID</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% if ledger|length == 0 %}
+          <tr><td colspan="5" class="muted center">No wallet transactions yet.</td></tr>
+        {% else %}
+          {% for entry in ledger %}
+          <tr>
+            <td class="mono small">{{ entry.ts_ist or "—" }}</td>
+            <td class="mono small">{{ entry.reason or "—" }}</td>
+            <td class="right mono {{ 'positive' if (entry.change or 0) >= 0 else 'negative' }}">
+              {{ "{:+,.2f}".format(entry.change or 0) }}
+            </td>
+            <td class="right mono">
+              {% if entry.balance %}₹ {{ "{:,.2f}".format(entry.balance) }}{% else %}—{% endif %}
+            </td>
+            <td class="mono small">{{ entry.trade_id or "—" }}</td>
+          </tr>
+          {% endfor %}
+        {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- System Info -->
+  <div class="card">
+    <h2>🔧 System Information</h2>
+    <div class="row" style="gap:24px;flex-wrap:wrap">
+      <div>
+        <strong>Webhook Endpoint:</strong> 
+        <code>POST /tv-webhook</code>
+      </div>
+              <div>
+          <strong>Strategy:</strong> 
+          <span class="muted">30% balance per ENTRY, close on TARGET1/TARGET2/STOPLOSS</span>
+        </div>
+      <div>
+        <strong>Database:</strong> 
+        <span class="muted">SQLite with WAL mode</span>
+      </div>
+    </div>
+    
+    <div style="margin-top:16px">
+      <details>
+        <summary style="cursor:pointer;color:var(--blue)">📝 Sample Webhook JSON</summary>
+        <pre style="background:#0b1320;padding:12px;border-radius:8px;margin-top:8px;overflow:auto"><code>{
+  "secret": "{{ secret_hint }}",
+  "event": "ENTRY",
+  "side": "BUY",
+  "symbol": "NSE:RELIANCE",
+  "tf": "5m",
+  "price": 2450.75,
+  "sigHigh": 2460.0,
+  "sigLow": 2440.0,
+  "sl": 2420.0,
+  "t1": 2480.0,
+  "t2": 2510.0,
+  "tag": "unique-trade-id"
+}</code></pre>
+      </details>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// Auto-refresh every 30 seconds
+setTimeout(() => location.reload(), 30000);
+
+// Clear all trades function
+async function clearTrades() {
+  if (!confirm('⚠️ Clear ALL trades and events? This cannot be undone!\n\nWallet balance will be preserved but all trade history will be lost.')) {
+    return;
+  }
+  
+  try {
+    const response = await fetch('/clear-trades', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'}
+    });
+    
+    const result = await response.json();
+    
+    if (result.status === 'ok') {
+      alert(`✅ ${result.message}\nWallet Balance: ₹${result.wallet_balance.toLocaleString()}`);
+      location.reload();
+    } else {
+      alert(`❌ Error: ${result.message}`);
+    }
+  } catch (error) {
+    alert(`❌ Network error: ${error.message}`);
+  }
+}
+
+// Add funds function
+async function addFunds() {
+  const amount = prompt('💰 Enter amount to add to wallet (₹):');
+  
+  if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
+    if (amount !== null) alert('❌ Please enter a valid positive amount');
+    return;
+  }
+  
+  const reason = prompt('📝 Enter reason for deposit (optional):', 'MANUAL_DEPOSIT') || 'MANUAL_DEPOSIT';
+  
+  try {
+    const response = await fetch('/add-funds', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        amount: parseFloat(amount),
+        reason: reason
+      })
+    });
+    
+    const result = await response.json();
+    
+    if (result.status === 'ok') {
+      alert(`✅ ${result.message}\n\nBefore: ₹${result.balance_before.toLocaleString()}\nAfter: ₹${result.balance_after.toLocaleString()}`);
+      location.reload();
+    } else {
+      alert(`❌ Error: ${result.message}`);
+    }
+  } catch (error) {
+    alert(`❌ Network error: ${error.message}`);
+  }
+}
+</script>
+
+</body>
+</html>

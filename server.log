@@ -1,0 +1,53 @@
+INFO:     Will watch for changes in these directories: ['/Users/apple/Documents/trd']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [99743] using WatchFiles
+INFO:     Started server process [99776]
+INFO:     Waiting for application startup.
+2025-09-07 17:00:47,488 - INFO - [Startup] Database v7 initialized successfully
+INFO:     Application startup complete.
+2025-09-07 17:00:54,917 - INFO - [ENTRY] BUY BTCUSDT at 111000.12 | Qty: 1.35135 | Spent: ₹150,000.01 | Balance: ₹849,999.99
+[i] Migrating database for Pine Script v7: trades.db
+[✓] Tables created/updated successfully
+[✓] Table 'wallet' exists
+[✓] Table 'wallet_ledger' exists
+[✓] Table 'trades' exists
+[✓] Table 'events' exists
+[✓] Wallet column 'id' exists
+[✓] Wallet column 'balance' exists
+[✓] Wallet column 'currency' exists
+[✓] Wallet column 'updated_ts_utc' exists
+[✓] Current wallet balance: ₹1,000,000.00
+[✓] Migration completed successfully
+
+Schema changes:
+  • Added wallet_ledger table for transaction tracking
+  • Updated wallet table (single row with current balance)
+  • Made t2, t3, sigH, sigL, raw columns nullable in trades
+  • Added qty, spent, realized_pnl, status columns to trades
+  • Added events table for audit trail
+
+INFO:     127.0.0.1:58534 - "POST /tv-webhook HTTP/1.1" 200 OK
+2025-09-07 17:00:56,000 - INFO - [TARGET1] BUY buy-1234567890 at 111800.0 | P&L: ₹+1,080.92 | Balance: ₹1,001,080.92
+INFO:     127.0.0.1:58536 - "POST /tv-webhook HTTP/1.1" 200 OK
+2025-09-07 17:00:57,037 - INFO - [ENTRY] SELL ETHUSDT at 3500.5 | Qty: 42.89734 | Spent: ₹150,162.14 | Balance: ₹850,918.78
+INFO:     127.0.0.1:58538 - "POST /tv-webhook HTTP/1.1" 200 OK
+2025-09-07 17:00:58,078 - INFO - [STOPLOSS] SELL sell-1234567891 at 3525.0 | P&L: ₹-1,050.98 | Balance: ₹1,000,029.93
+INFO:     127.0.0.1:58540 - "POST /tv-webhook HTTP/1.1" 200 OK
+2025-09-07 17:00:58,109 - ERROR - [Webhook] Validation error: Invalid secret
+INFO:     127.0.0.1:58542 - "POST /tv-webhook HTTP/1.1" 400 Bad Request
+2025-09-07 17:00:58,127 - ERROR - [Webhook] Validation error: Missing required fields for ENTRY
+INFO:     127.0.0.1:58544 - "POST /tv-webhook HTTP/1.1" 400 Bad Request
+2025-09-07 17:00:58,145 - INFO - [ENTRY] BUY NSE:RELIANCE at 2450.75 | Qty: 61.21 | Spent: ₹150,010.41 | Balance: ₹850,019.53
+INFO:     127.0.0.1:58546 - "POST /tv-webhook HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58548 - "GET /health HTTP/1.1" 200 OK
+2025-09-07 17:01:06,114 - ERROR - [Dashboard] Error: expected token ',', got 'for'
+INFO:     127.0.0.1:58554 - "GET /dashboard HTTP/1.1" 500 Internal Server Error
+WARNING:  WatchFiles detected changes in 'migrate_db_v7.py', 'app_v7.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [99776]
+INFO:     Started server process [219]
+INFO:     Waiting for application startup.
+2025-09-07 17:01:34,271 - INFO - [Startup] Database v7 initialized successfully
+INFO:     Application startup complete.
